@@ -3,34 +3,62 @@ import SwiftUI
 struct HomeView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @State private var selectedDate = Date()
-    @State private var dayRecord: DayRecord?
     
-    var dayOfWeek: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE"
-        return formatter.string(from: selectedDate)
+    // Use @FetchRequest instead of @State for DayRecord
+    @FetchRequest private var dayRecords: FetchedResults<DayRecord>
+    
+    private var dayRecord: DayRecord? {
+        dayRecords.first
     }
     
-    var workoutFocus: String {
-        switch dayOfWeek {
-        case "Monday": return "Leg Day"
-        case "Tuesday": return "Arm Day"
-        case "Wednesday": return "Rest Day"
-        case "Thursday": return "Chest Day"
-        case "Friday": return "Back Day"
-        case "Saturday": return "Shoulder Day"
-        default: return "Rest Day"
+    init() {
+        // Initialize the fetch request with a predicate for the selected date
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: Date())
+        let predicate = NSPredicate(format: "date == %@", startOfDay as NSDate)
+        
+        _dayRecords = FetchRequest(
+            entity: DayRecord.entity(),
+            sortDescriptors: [],
+            predicate: predicate
+        )
+    }
+    
+    var isHighCarb: Bool {
+        WorkoutManager.shared.isHighCarbDay(selectedDate)
+    }
+    
+    var workout: WorkoutManager.WorkoutDay {
+        WorkoutManager.shared.getWorkoutForDate(selectedDate)
+    }
+    
+    var cardioDescription: String {
+        selectedDate.isWeekend ? "Rest Day" : "30 min fasted cardio"
+    }
+    
+    var totalCalories: Int {
+        // Calculate total calories based on meal plan
+        var total = 0
+        for mealNumber in 1...5 {
+            let mealPlan = WorkoutManager.shared.getMealPlan(for: selectedDate, mealNumber: mealNumber)
+            total += mealPlan.options.first?.calories ?? 0
         }
-    }
-    
-    var carbType: String {
-        return dayOfWeek == "Monday" ? "High Carb" : "Low Carb"
+        
+        if !isRestDay() {
+            let shake = WorkoutManager.shared.getPostWorkoutShake(isHighCarb: isHighCarb)
+            total += shake.calories
+        }
+        
+        let comfortFood = WorkoutManager.shared.getComfortFood()
+        total += comfortFood.calories
+        
+        return total
     }
     
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(spacing: 20) {
                     // Date Picker
                     DatePicker("Select Date",
                              selection: $selectedDate,
@@ -38,171 +66,178 @@ struct HomeView: View {
                         .datePickerStyle(.compact)
                         .padding()
                         .onChange(of: selectedDate) { _ in
-                            loadDayRecord()
+                            updateFetchRequest()
                         }
                     
-                    // Day Header
-                    VStack(alignment: .leading) {
-                        Text("\(dayOfWeek) – \(workoutFocus)")
+                    // Day Overview
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(selectedDate.formatted(.dateTime.weekday(.wide)))
                             .font(.title)
                             .bold()
-                        Text(carbType)
+                        
+                        HStack {
+                            Image(systemName: isHighCarb ? "flame.fill" : "leaf.fill")
+                                .foregroundColor(isHighCarb ? .red : .green)
+                            Text(isHighCarb ? "High Carb Day" : "Low Carb Day")
+                                .foregroundColor(isHighCarb ? .red : .green)
+                        }
+                        
+                        Text("Target Calories: \(totalCalories) kcal")
                             .font(.headline)
-                            .foregroundColor(carbType == "High Carb" ? .red : .gray)
+                            .foregroundColor(.gray)
                     }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(UIColor.systemGray6))
+                    .cornerRadius(10)
                     .padding(.horizontal)
                     
-                    // Morning Cardio Section
+                    // Morning Cardio
                     DailyTaskCard(
                         title: "Morning Cardio",
-                        description: getMorningCardioDescription(),
-                        isCompleted: Binding(
-                            get: { dayRecord?.didRun ?? false },
-                            set: { newValue in
-                                dayRecord?.didRun = newValue
-                                saveContext()
-                            }
-                        ),
-                        iconName: "figure.run"
+                        subtitle: cardioDescription,
+                        systemImage: "figure.run",
+                        isCompleted: dayRecord?.didRun ?? false,
+                        isEnabled: true,
+                        onToggle: { toggleTask(\.didRun) }
                     )
                     
-                    // Evening Workout Section
+                    // Workout
                     DailyTaskCard(
                         title: "Evening Workout",
-                        description: getEveningWorkoutDescription(),
-                        isCompleted: Binding(
-                            get: { dayRecord?.didLift ?? false },
-                            set: { newValue in
-                                dayRecord?.didLift = newValue
-                                saveContext()
-                            }
-                        ),
-                        iconName: "dumbbell.fill"
+                        subtitle: workout.exercises.isEmpty ? "Rest Day" : "\(workout.name) Day",
+                        systemImage: "dumbbell.fill",
+                        isCompleted: dayRecord?.didLift ?? false,
+                        isEnabled: true,
+                        onToggle: { toggleTask(\.didLift) }
                     )
                     
-                    // Meals Section
+                    // Meals
                     DailyTaskCard(
                         title: "Meals",
-                        description: "Complete all 5 meals for today",
-                        isCompleted: Binding(
-                            get: { dayRecord?.mealsCompleted ?? false },
-                            set: { newValue in
-                                dayRecord?.mealsCompleted = newValue
-                                saveContext()
-                            }
-                        ),
-                        iconName: "fork.knife"
+                        subtitle: "5 meals + post-workout shake",
+                        systemImage: "fork.knife",
+                        isCompleted: dayRecord?.mealsCompleted ?? false,
+                        isEnabled: false,
+                        onToggle: {}
                     )
                     
-                    // Supplements Section
+                    // Supplements
                     DailyTaskCard(
                         title: "Supplements",
-                        description: "Take all scheduled supplements",
-                        isCompleted: Binding(
-                            get: { dayRecord?.supplementsTaken ?? false },
-                            set: { newValue in
-                                dayRecord?.supplementsTaken = newValue
-                                saveContext()
-                            }
-                        ),
-                        iconName: "pills.fill"
+                        subtitle: "Daily supplements taken",
+                        systemImage: "pills.fill",
+                        isCompleted: dayRecord?.supplementsCompleted ?? false,
+                        isEnabled: true,
+                        onToggle: { toggleTask(\.supplementsCompleted) }
                     )
                     
-                    // Post-Workout Shake Section
-                    if !isRestDay() {
-                        DailyTaskCard(
-                            title: "Post-Workout Shake",
-                            description: getShakeDescription(),
-                            isCompleted: Binding(
-                                get: { dayRecord?.didShake ?? false },
-                                set: { newValue in
-                                    dayRecord?.didShake = newValue
-                                    saveContext()
-                                }
-                            ),
-                            iconName: "cup.and.saucer.fill"
-                        )
+                    // Notes Section
+                    if let note = dayRecord?.note, !note.isEmpty {
+                        VStack(alignment: .leading) {
+                            Text("Notes")
+                                .font(.headline)
+                            Text(note)
+                                .font(.body)
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(UIColor.systemGray6))
+                        .cornerRadius(10)
+                        .padding(.horizontal)
                     }
                 }
             }
-            .navigationTitle("Daily Dashboard")
+            .navigationTitle("Dashboard")
             .onAppear {
-                loadDayRecord()
+                updateFetchRequest()
             }
         }
     }
     
-    private func loadDayRecord() {
-        dayRecord = CoreDataManager.shared.getOrCreateDayRecord(for: selectedDate)
+    private func updateFetchRequest() {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: selectedDate)
+        
+        // Get or create the day record
+        let record = CoreDataManager.shared.getOrCreateDayRecord(for: selectedDate)
+        
+        // Update the fetch request's predicate
+        dayRecords.nsPredicate = NSPredicate(format: "date == %@", startOfDay as NSDate)
     }
     
-    private func saveContext() {
-        CoreDataManager.shared.saveContext()
+    private func toggleTask<Value>(_ keyPath: ReferenceWritableKeyPath<DayRecord, Value>) where Value == Bool {
+        guard let record = dayRecord else { return }
+        
+        viewContext.perform {
+            record[keyPath: keyPath].toggle()
+            
+            do {
+                try viewContext.save()
+            } catch {
+                print("Error saving context: \(error)")
+            }
+        }
     }
     
     private func isRestDay() -> Bool {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        let dayOfWeek = formatter.string(from: selectedDate)
         return dayOfWeek == "Wednesday" || dayOfWeek == "Sunday"
-    }
-    
-    private func getMorningCardioDescription() -> String {
-        switch dayOfWeek {
-        case "Monday": return "Moderate 5K run (or Tempo run)"
-        case "Tuesday": return "Easy jog 3-4K (Recovery run)"
-        case "Wednesday": return "Recovery 5K or incline walk"
-        case "Thursday": return "Intervals – 4×800m fast repeats"
-        case "Friday": return "Rest or optional 25-min walk"
-        case "Saturday": return "5K run (best effort for time)"
-        default: return "Full Rest (no cardio)"
-        }
-    }
-    
-    private func getEveningWorkoutDescription() -> String {
-        switch dayOfWeek {
-        case "Monday": return "Legs workout"
-        case "Tuesday": return "Arms workout"
-        case "Wednesday": return "Rest day"
-        case "Thursday": return "Chest workout"
-        case "Friday": return "Back workout"
-        case "Saturday": return "Shoulders workout"
-        default: return "Rest day"
-        }
-    }
-    
-    private func getShakeDescription() -> String {
-        if dayOfWeek == "Monday" {
-            return "Post-workout shake with carb powder"
-        } else {
-            return "Post-workout shake with banana"
-        }
     }
 }
 
 struct DailyTaskCard: View {
     let title: String
-    let description: String
-    @Binding var isCompleted: Bool
-    let iconName: String
+    let subtitle: String
+    let systemImage: String
+    let isCompleted: Bool
+    let isEnabled: Bool
+    let onToggle: () -> Void
     
     var body: some View {
-        VStack(alignment: .leading) {
-            HStack {
-                Image(systemName: iconName)
-                    .font(.title2)
+        HStack {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundColor(isCompleted ? .green : .gray)
+                .frame(width: 40)
+            
+            VStack(alignment: .leading) {
                 Text(title)
                     .font(.headline)
-                Spacer()
-                Toggle("", isOn: $isCompleted)
-                    .labelsHidden()
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundColor(.gray)
             }
             
-            Text(description)
-                .font(.subheadline)
-                .foregroundColor(.gray)
+            Spacer()
+            
+            if isEnabled {
+                Toggle("", isOn: .init(
+                    get: { isCompleted },
+                    set: { _ in onToggle() }
+                ))
+                .labelsHidden()
+            } else {
+                // Show a non-interactive indicator for disabled toggles
+                Circle()
+                    .fill(isCompleted ? Color.green : Color.gray.opacity(0.3))
+                    .frame(width: 22, height: 22)
+            }
         }
         .padding()
         .background(Color(UIColor.systemGray6))
         .cornerRadius(10)
         .padding(.horizontal)
+    }
+}
+
+extension Date {
+    var isWeekend: Bool {
+        let calendar = Calendar.current
+        let weekday = calendar.component(.weekday, from: self)
+        return weekday == 1 || weekday == 7 // 1 is Sunday, 7 is Saturday
     }
 }
 

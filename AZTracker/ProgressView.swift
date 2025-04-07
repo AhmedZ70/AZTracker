@@ -1,17 +1,25 @@
 import SwiftUI
 import PhotosUI
+import CoreData
 
 struct ProgressView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @State private var weight: String = ""
     @State private var runTime: String = ""
+    @State private var completionRate: String = ""
     @State private var notes: String = ""
+    @State private var selectedDate = Date()
+    @State private var showingImagePicker = false
+    @State private var inputImage: UIImage?
+    @State private var showingAlert = false
+    @State private var alertMessage = ""
     @State private var selectedItem: PhotosPickerItem?
     @State private var selectedImageData: Data?
+    
     @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \ProgressEntry.entryDate, ascending: false)],
-        animation: .default)
-    private var progressEntries: FetchedResults<ProgressEntry>
+        entity: ProgressEntry.entity(),
+        sortDescriptors: [NSSortDescriptor(keyPath: \ProgressEntry.entryDate, ascending: false)]
+    ) private var progressEntries: FetchedResults<ProgressEntry>
     
     var latestEntry: ProgressEntry? {
         return progressEntries.first
@@ -19,103 +27,69 @@ struct ProgressView: View {
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Current Stats Section
-                    CurrentStatsCard(latestEntry: latestEntry)
+            Form {
+                Section(header: Text("Progress Entry")) {
+                    DatePicker("Date", selection: $selectedDate, displayedComponents: .date)
                     
-                    // New Entry Section
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Add New Entry")
-                            .font(.headline)
-                            .padding(.horizontal)
-                        
-                        // Weight Input
-                        VStack(alignment: .leading) {
-                            Text("Weight (kg)")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                            TextField("Enter weight", text: $weight)
-                                .keyboardType(.decimalPad)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                        }
-                        .padding(.horizontal)
-                        
-                        // Run Time Input
-                        VStack(alignment: .leading) {
-                            Text("5K Time (mm:ss)")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                            TextField("Enter run time", text: $runTime)
-                                .keyboardType(.numberPad)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                        }
-                        .padding(.horizontal)
-                        
-                        // Notes Input
-                        VStack(alignment: .leading) {
-                            Text("Notes")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                            TextEditor(text: $notes)
-                                .frame(height: 100)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
-                                )
-                        }
-                        .padding(.horizontal)
-                        
-                        // Photo Picker
-                        VStack(alignment: .leading) {
-                            Text("Progress Photo")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
-                            
-                            PhotosPicker(
-                                selection: $selectedItem,
-                                matching: .images
-                            ) {
-                                if let selectedImageData,
-                                   let uiImage = UIImage(data: selectedImageData) {
-                                    Image(uiImage: uiImage)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .frame(height: 200)
-                                        .cornerRadius(8)
-                                } else {
-                                    Label("Select a photo", systemImage: "photo")
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 44)
-                                        .background(Color(UIColor.systemGray6))
-                                        .cornerRadius(8)
+                    TextField("Weight (lbs)", text: $weight)
+                        .keyboardType(.decimalPad)
+                    
+                    TextField("Run Time (minutes)", text: $runTime)
+                        .keyboardType(.numberPad)
+                    
+                    TextField("Completion Rate (%)", text: $completionRate)
+                        .keyboardType(.decimalPad)
+                    
+                    TextEditor(text: $notes)
+                        .frame(height: 100)
+                }
+                
+                Section {
+                    Button(action: {
+                        showingImagePicker = true
+                    }) {
+                        Text(inputImage == nil ? "Add Photo" : "Change Photo")
+                    }
+                    
+                    if let image = inputImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                    }
+                }
+                
+                if !progressEntries.isEmpty {
+                    Section(header: Text("History")) {
+                        ForEach(progressEntries) { entry in
+                            VStack(alignment: .leading) {
+                                Text(entry.formattedDate)
+                                    .font(.headline)
+                                Text("Weight: \(entry.formattedWeight)")
+                                Text("Run Time: \(entry.formattedRunTime)")
+                                if let notes = entry.notes, !notes.isEmpty {
+                                    Text(notes)
+                                        .font(.caption)
                                 }
                             }
                         }
-                        .padding(.horizontal)
-                        
-                        // Save Button
-                        Button(action: saveEntry) {
-                            Text("Save Entry")
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 44)
-                                .background(Color.red)
-                                .foregroundColor(.white)
-                                .cornerRadius(8)
-                        }
-                        .padding(.horizontal)
                     }
-                    .padding(.vertical)
-                    .background(Color(UIColor.systemGray6))
-                    .cornerRadius(12)
-                    .padding(.horizontal)
-                    
-                    // History Section
-                    HistorySection(entries: progressEntries)
                 }
-                .padding(.vertical)
+                
+                Section {
+                    Button(action: saveEntry) {
+                        Text("Save Entry")
+                    }
+                }
             }
-            .navigationTitle("Progress")
+            .navigationTitle("Track Progress")
+            .sheet(isPresented: $showingImagePicker) {
+                ImagePicker(image: $inputImage)
+            }
+            .alert("Progress Entry", isPresented: $showingAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(alertMessage)
+            }
             .onChange(of: selectedItem) { newItem in
                 Task {
                     if let data = try? await newItem?.loadTransferable(type: Data.self) {
@@ -127,40 +101,82 @@ struct ProgressView: View {
     }
     
     private func saveEntry() {
-        let weightValue = Double(weight) ?? 0
-        let runTimeComponents = runTime.split(separator: ":")
-        var runTimeInSeconds: Int32 = 0
+        let weightValue = Double(weight) ?? 0.0
+        let runTimeMinutes = Double(runTime) ?? 0.0
+        let runTimeSeconds = Int32(runTimeMinutes * 60)
+        let completionValue = Double(completionRate) ?? 0.0
         
-        if runTimeComponents.count == 2,
-           let minutes = Int32(runTimeComponents[0]),
-           let seconds = Int32(runTimeComponents[1]) {
-            runTimeInSeconds = minutes * 60 + seconds
+        var imageData: Data? = nil
+        if let image = inputImage {
+            imageData = image.jpegData(compressionQuality: 0.8)
         }
         
-        CoreDataManager.shared.saveProgressEntry(
+        let entry = CoreDataManager.shared.createProgressEntry(
+            date: selectedDate,
             weight: weightValue,
-            runTimeSeconds: runTimeInSeconds,
-            notes: notes.isEmpty ? nil : notes,
-            photo: selectedImageData,
-            completionRate: calculateCompletionRate()
+            runTime: runTimeSeconds,
+            completion: completionValue,
+            notes: notes,
+            photo: imageData
         )
         
-        // Clear form
+        // Reset form
         weight = ""
         runTime = ""
+        completionRate = ""
         notes = ""
-        selectedImageData = nil
-        selectedItem = nil
+        inputImage = nil
+        selectedDate = Date()
+        
+        alertMessage = "Progress entry saved successfully!"
+        showingAlert = true
+    }
+}
+
+struct ImagePicker: UIViewControllerRepresentable {
+    @Binding var image: UIImage?
+    @Environment(\.presentationMode) var presentationMode
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.delegate = context.coordinator
+        return picker
     }
     
-    private func calculateCompletionRate() -> Double {
-        // TODO: Implement weekly completion rate calculation
-        return 0.0
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: ImagePicker
+        
+        init(_ parent: ImagePicker) {
+            self.parent = parent
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.image = image
+            }
+            parent.presentationMode.wrappedValue.dismiss()
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.presentationMode.wrappedValue.dismiss()
+        }
     }
 }
 
 struct CurrentStatsCard: View {
     let latestEntry: ProgressEntry?
+    
+    var formattedWeight: String {
+        guard let weight = latestEntry?.weight, weight != 0 else { return "N/A" }
+        let weightInLbs = weight * 2.20462 // Convert kg to lbs
+        return String(format: "%.1f lbs", weightInLbs)
+    }
     
     var formattedRunTime: String {
         guard let seconds = latestEntry?.runTimeSeconds, seconds > 0 else { return "N/A" }
@@ -177,7 +193,7 @@ struct CurrentStatsCard: View {
             HStack(spacing: 20) {
                 StatItem(
                     title: "Weight",
-                    value: latestEntry?.weight != 0 ? String(format: "%.1f kg", latestEntry?.weight ?? 0) : "N/A",
+                    value: formattedWeight,
                     icon: "scalemass.fill"
                 )
                 StatItem(
@@ -238,6 +254,11 @@ struct HistorySection: View {
 struct HistoryEntryCard: View {
     let entry: ProgressEntry
     
+    var formattedWeight: String {
+        let weightInLbs = entry.weight * 2.20462 // Convert kg to lbs
+        return String(format: "%.1f lbs", weightInLbs)
+    }
+    
     var formattedRunTime: String {
         guard entry.runTimeSeconds > 0 else { return "N/A" }
         let minutes = entry.runTimeSeconds / 60
@@ -251,7 +272,7 @@ struct HistoryEntryCard: View {
                 .font(.headline)
             
             HStack {
-                Text("Weight: \(String(format: "%.1f kg", entry.weight))")
+                Text("Weight: \(formattedWeight)")
                 Spacer()
                 Text("5K: \(formattedRunTime)")
             }

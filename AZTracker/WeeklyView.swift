@@ -2,181 +2,223 @@ import SwiftUI
 
 struct WeeklyView: View {
     @Environment(\.managedObjectContext) private var viewContext
-    let weekDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     @State private var selectedWeekStart = Date().startOfWeek
+    
+    // Use @FetchRequest for the week's DayRecords
+    @FetchRequest private var weekRecords: FetchedResults<DayRecord>
+    
+    init() {
+        // Initialize fetch request for the current week
+        let calendar = Calendar.current
+        let weekStart = Date().startOfWeek
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart)!
+        
+        let predicate = NSPredicate(format: "date >= %@ AND date < %@",
+                                  weekStart as NSDate,
+                                  weekEnd as NSDate)
+        
+        _weekRecords = FetchRequest(
+            entity: DayRecord.entity(),
+            sortDescriptors: [NSSortDescriptor(keyPath: \DayRecord.date, ascending: true)],
+            predicate: predicate
+        )
+    }
     
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 16) {
-                    // Week Selector
+                VStack(spacing: 20) {
+                    // Week Navigation
                     HStack {
-                        Button(action: { selectedWeekStart = selectedWeekStart.addingTimeInterval(-7*24*60*60) }) {
+                        Button(action: { moveWeek(by: -7) }) {
                             Image(systemName: "chevron.left")
+                                .foregroundColor(.red)
                         }
                         
-                        Text(weekRangeText)
+                        Text(getWeekRangeText())
                             .font(.headline)
                         
-                        Button(action: { selectedWeekStart = selectedWeekStart.addingTimeInterval(7*24*60*60) }) {
+                        Button(action: { moveWeek(by: 7) }) {
                             Image(systemName: "chevron.right")
+                                .foregroundColor(.red)
                         }
                     }
                     .padding()
                     
-                    LazyVGrid(columns: [GridItem(.flexible())], spacing: 16) {
-                        ForEach(weekDays, id: \.self) { day in
-                            WeekDayCard(
-                                day: day,
-                                date: dateFor(weekday: day),
-                                dayRecord: CoreDataManager.shared.getDayRecord(for: dateFor(weekday: day))
-                            )
+                    // Week Grid
+                    LazyVGrid(columns: [GridItem(.flexible())], spacing: 12) {
+                        ForEach(0..<7) { dayOffset in
+                            if let date = Calendar.current.date(byAdding: .day, value: dayOffset, to: selectedWeekStart) {
+                                WeekDayCard(date: date)
+                            }
                         }
                     }
-                    .padding()
+                    .padding(.horizontal)
                 }
             }
-            .navigationTitle("Weekly Split")
+            .navigationTitle("Weekly Overview")
+            .onChange(of: selectedWeekStart) { _ in
+                updateWeekPredicate()
+            }
         }
     }
     
-    var weekRangeText: String {
-        let endOfWeek = selectedWeekStart.addingTimeInterval(6*24*60*60)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return "\(formatter.string(from: selectedWeekStart)) - \(formatter.string(from: endOfWeek))"
+    private func updateWeekPredicate() {
+        let calendar = Calendar.current
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: selectedWeekStart)!
+        
+        // Update fetch request predicate
+        weekRecords.nsPredicate = NSPredicate(format: "date >= %@ AND date < %@",
+                                            selectedWeekStart as NSDate,
+                                            weekEnd as NSDate)
+        
+        // Ensure records exist for the week
+        var currentDate = selectedWeekStart
+        while currentDate < weekEnd {
+            _ = CoreDataManager.shared.getOrCreateDayRecord(for: currentDate)
+            currentDate = calendar.date(byAdding: .day, value: 1, to: currentDate)!
+        }
     }
     
-    func dateFor(weekday: String) -> Date {
-        let weekdayIndex = weekDays.firstIndex(of: weekday) ?? 0
-        return selectedWeekStart.addingTimeInterval(Double(weekdayIndex) * 24*60*60)
+    private func getWeekRangeText() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        
+        guard let weekEnd = Calendar.current.date(byAdding: .day, value: 6, to: selectedWeekStart) else {
+            return ""
+        }
+        
+        return "\(formatter.string(from: selectedWeekStart)) - \(formatter.string(from: weekEnd))"
+    }
+    
+    private func moveWeek(by days: Int) {
+        if let newDate = Calendar.current.date(byAdding: .day, value: days, to: selectedWeekStart) {
+            selectedWeekStart = newDate
+        }
     }
 }
 
 struct WeekDayCard: View {
-    let day: String
     let date: Date
-    let dayRecord: DayRecord?
+    @Environment(\.managedObjectContext) private var viewContext
     
-    var workoutFocus: String {
-        switch day {
-        case "Monday": return "Legs"
-        case "Tuesday": return "Arms"
-        case "Wednesday": return "Rest"
-        case "Thursday": return "Chest"
-        case "Friday": return "Back"
-        case "Saturday": return "Shoulders"
-        default: return "Rest"
-        }
+    // Use @FetchRequest for the day's record
+    @FetchRequest private var dayRecords: FetchedResults<DayRecord>
+    
+    private var dayRecord: DayRecord? {
+        dayRecords.first
     }
     
-    var cardioDescription: String {
-        switch day {
-        case "Monday": return "Moderate 5K"
-        case "Tuesday": return "Easy 3-4K"
-        case "Wednesday": return "Recovery Walk/5K"
-        case "Thursday": return "Intervals 4×800m"
-        case "Friday": return "Optional Walk"
-        case "Saturday": return "5K Best Effort"
-        default: return "Full Rest"
-        }
+    init(date: Date) {
+        self.date = date
+        
+        // Initialize fetch request for this specific date
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let predicate = NSPredicate(format: "date >= %@ AND date < %@",
+                                  startOfDay as NSDate,
+                                  endOfDay as NSDate)
+        
+        _dayRecords = FetchRequest(
+            entity: DayRecord.entity(),
+            sortDescriptors: [],
+            predicate: predicate
+        )
+        
+        // Ensure record exists
+        _ = CoreDataManager.shared.getOrCreateDayRecord(for: date)
     }
     
-    var carbType: String {
-        return day == "Monday" ? "High Carb" : "Low Carb"
+    private var workout: WorkoutManager.WorkoutDay {
+        WorkoutManager.shared.getWorkoutForDate(date)
     }
     
-    var isToday: Bool {
-        Calendar.current.isDate(date, inSameDayAs: Date())
+    private var isHighCarb: Bool {
+        WorkoutManager.shared.isHighCarbDay(date)
+    }
+    
+    private var dayOfWeek: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE"
+        return formatter.string(from: date)
+    }
+    
+    private var isFullRestDay: Bool {
+        dayOfWeek == "Sunday"
+    }
+    
+    private var isPartialRestDay: Bool {
+        dayOfWeek == "Wednesday"
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Day Header
+        VStack(alignment: .leading, spacing: 8) {
+            // Date Header
             HStack {
-                Text(day)
-                    .font(.title2)
-                    .bold()
+                Text(date.formatted(.dateTime.weekday(.wide)))
+                    .font(.headline)
                 Spacer()
-                Text(carbType)
+                if Calendar.current.isDateInToday(date) {
+                    Text("Today")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+            }
+            
+            Divider()
+            
+            // Workout Focus
+            HStack {
+                Image(systemName: isFullRestDay ? "moon.zzz.fill" : (workout.exercises.isEmpty ? "figure.walk" : "dumbbell.fill"))
+                    .foregroundColor(isFullRestDay ? .blue : (workout.exercises.isEmpty ? .green : .red))
+                Text(isFullRestDay ? "Full Rest Day" : (isPartialRestDay ? "Cardio Only" : workout.name))
                     .font(.subheadline)
-                    .foregroundColor(carbType == "High Carb" ? .red : .gray)
             }
             
-            // Workout Details
-            HStack(spacing: 20) {
-                // Cardio
-                VStack(alignment: .leading) {
-                    Label {
-                        Text("Cardio")
-                            .font(.subheadline)
-                            .bold()
-                    } icon: {
-                        Image(systemName: "figure.run")
-                    }
-                    Text(cardioDescription)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
-                
-                Spacer()
-                
-                // Workout
-                VStack(alignment: .leading) {
-                    Label {
-                        Text("Workout")
-                            .font(.subheadline)
-                            .bold()
-                    } icon: {
-                        Image(systemName: "dumbbell.fill")
-                    }
-                    Text(workoutFocus)
-                        .font(.caption)
-                        .foregroundColor(.gray)
-                }
+            // Carb Type
+            HStack {
+                Image(systemName: isHighCarb ? "flame.fill" : "leaf.fill")
+                    .foregroundColor(isHighCarb ? .red : .green)
+                Text(isHighCarb ? "High Carb" : "Low Carb")
+                    .font(.caption)
+                    .foregroundColor(isHighCarb ? .red : .green)
             }
             
-            // Progress Indicators
-            HStack(spacing: 8) {
-                ProgressDot(
-                    color: .blue,
-                    label: "Cardio",
-                    isCompleted: dayRecord?.didRun ?? false
-                )
-                ProgressDot(
-                    color: .green,
-                    label: "Workout",
-                    isCompleted: dayRecord?.didLift ?? false
-                )
-                ProgressDot(
-                    color: .orange,
-                    label: "Meals",
-                    isCompleted: dayRecord?.mealsCompleted ?? false
-                )
+            Divider()
+            
+            // Progress Dots
+            HStack(spacing: 12) {
+                if !isFullRestDay {
+                    ProgressDot(title: "Run", isCompleted: dayRecord?.didRun ?? false)
+                }
+                if !isFullRestDay && !isPartialRestDay {
+                    ProgressDot(title: "Lift", isCompleted: dayRecord?.didLift ?? false)
+                }
+                ProgressDot(title: "Meals", isCompleted: dayRecord?.mealsCompleted ?? false)
             }
-            .padding(.top, 8)
         }
         .padding()
         .background(Color(UIColor.systemGray6))
-        .cornerRadius(12)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isToday ? Color.red : Color.clear, lineWidth: 2)
-        )
+        .cornerRadius(10)
     }
 }
 
 struct ProgressDot: View {
-    let color: Color
-    let label: String
+    let title: String
     let isCompleted: Bool
     
     var body: some View {
         VStack {
             Circle()
-                .fill(isCompleted ? color : color.opacity(0.3))
+                .fill(isCompleted ? Color.green : Color.gray.opacity(0.3))
                 .frame(width: 12, height: 12)
-            Text(label)
+            Text(title)
                 .font(.caption2)
                 .foregroundColor(.gray)
         }
@@ -185,9 +227,7 @@ struct ProgressDot: View {
 
 extension Date {
     var startOfWeek: Date {
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: self)
-        return calendar.date(from: components) ?? self
+        Calendar.current.dateComponents([.calendar, .yearForWeekOfYear, .weekOfYear], from: self).date ?? self
     }
 }
 

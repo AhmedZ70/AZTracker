@@ -1,106 +1,156 @@
 import CoreData
 import SwiftUI
+import Foundation
 
 class CoreDataManager {
     static let shared = CoreDataManager()
     
-    let container: NSPersistentContainer
-    
-    init() {
-        container = NSPersistentContainer(name: "AZTracker")
+    lazy var container: NSPersistentContainer = {
+        let container = NSPersistentContainer(name: "AZTracker")
         container.loadPersistentStores { description, error in
             if let error = error {
-                print("Core Data failed to load: \(error.localizedDescription)")
+                fatalError("Unable to load persistent stores: \(error)")
             }
         }
+        return container
+    }()
+    
+    var viewContext: NSManagedObjectContext {
+        return container.viewContext
     }
     
-    // MARK: - Day Record Operations
-    
-    func getDayRecord(for date: Date) -> DayRecord? {
-        let request = DayRecord.fetchRequest()
-        request.predicate = NSPredicate(format: "date >= %@ AND date < %@",
-                                      date.startOfDay as NSDate,
-                                      date.endOfDay as NSDate)
-        request.fetchLimit = 1
-        
-        do {
-            let records = try container.viewContext.fetch(request)
-            return records.first
-        } catch {
-            print("Failed to fetch day record: \(error)")
-            return nil
-        }
-    }
-    
-    func createDayRecord(for date: Date) -> DayRecord {
-        let record = DayRecord(context: container.viewContext)
-        record.date = date
-        record.didRun = false
-        record.didLift = false
-        record.mealsCompleted = false
-        record.supplementsTaken = false
-        record.didShake = false
-        saveContext()
-        return record
-    }
-    
+    // MARK: - Day Records
     func getOrCreateDayRecord(for date: Date) -> DayRecord {
-        if let existingRecord = getDayRecord(for: date) {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        
+        let fetchRequest: NSFetchRequest<DayRecord> = DayRecord.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "date == %@", startOfDay as NSDate)
+        
+        if let existingRecord = try? viewContext.fetch(fetchRequest).first {
             return existingRecord
         }
-        return createDayRecord(for: date)
+        
+        let newRecord = DayRecord(context: viewContext)
+        newRecord.date = startOfDay
+        newRecord.cardioCompleted = false
+        newRecord.workoutCompleted = false
+        newRecord.mealsCompleted = false
+        newRecord.supplementsCompleted = false
+        saveContext()
+        
+        return newRecord
     }
     
-    // MARK: - Progress Entry Operations
-    
-    func saveProgressEntry(weight: Double?, runTimeSeconds: Int32?, notes: String?, photo: Data?, completionRate: Double?) {
-        let entry = ProgressEntry(context: container.viewContext)
-        entry.entryDate = Date()
-        entry.weight = weight ?? 0
-        entry.runTimeSeconds = runTimeSeconds ?? 0
+    // MARK: - Progress Entries
+    func createProgressEntry(date: Date, weight: Double? = nil, runTime: Int32? = nil, completion: Double? = nil, notes: String? = nil, photo: Data? = nil) -> ProgressEntry {
+        let entry = ProgressEntry(context: viewContext)
+        entry.entryDate = date
+        entry.weight = weight ?? 0.0
+        entry.runTimeSeconds = runTime ?? 0
+        entry.completionRate = completion ?? 0.0
         entry.notes = notes
         entry.photo = photo
-        entry.completionRate = completionRate ?? 0
         saveContext()
+        return entry
     }
     
-    func getLatestProgressEntry() -> ProgressEntry? {
+    func getProgressEntries(startDate: Date? = nil, endDate: Date? = nil) -> [ProgressEntry] {
         let request = ProgressEntry.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \ProgressEntry.entryDate, ascending: false)]
-        request.fetchLimit = 1
         
-        do {
-            let entries = try container.viewContext.fetch(request)
-            return entries.first
-        } catch {
-            print("Failed to fetch latest progress entry: \(error)")
-            return nil
+        if let start = startDate, let end = endDate {
+            request.predicate = NSPredicate(format: "entryDate >= %@ AND entryDate <= %@", start as NSDate, end as NSDate)
         }
-    }
-    
-    func getAllProgressEntries() -> [ProgressEntry] {
-        let request = ProgressEntry.fetchRequest()
-        request.sortDescriptors = [NSSortDescriptor(keyPath: \ProgressEntry.entryDate, ascending: false)]
+        
+        request.sortDescriptors = [NSSortDescriptor(key: "entryDate", ascending: false)]
         
         do {
-            return try container.viewContext.fetch(request)
+            return try viewContext.fetch(request)
         } catch {
-            print("Failed to fetch progress entries: \(error)")
+            print("Error fetching progress entries: \(error)")
             return []
         }
     }
     
-    // MARK: - Utility Functions
+    func deleteProgressEntry(_ entry: ProgressEntry) {
+        viewContext.delete(entry)
+        saveContext()
+    }
     
+    // MARK: - Workout Logging
+    func getOrCreateWorkoutLog(for date: Date, exercise: String) -> WorkoutLog {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        
+        let fetchRequest: NSFetchRequest<WorkoutLog> = WorkoutLog.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "date == %@ AND exerciseName == %@", 
+                                           startOfDay as NSDate, 
+                                           exercise)
+        
+        if let existingLog = try? viewContext.fetch(fetchRequest).first {
+            return existingLog
+        }
+        
+        let newLog = WorkoutLog(context: viewContext)
+        newLog.date = startOfDay
+        newLog.exerciseName = exercise
+        newLog.setWeights = []
+        newLog.notes = ""
+        saveContext()
+        
+        return newLog
+    }
+    
+    func updateWorkoutLog(_ log: WorkoutLog, weights: [Double]) {
+        log.setWeights = weights
+        saveContext()
+    }
+    
+    // MARK: - Meal Tracking
+    func getOrCreateMealLog(for date: Date, mealNumber: Int16) -> MealLog {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        
+        let fetchRequest: NSFetchRequest<MealLog> = MealLog.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "date == %@ AND mealNumber == %d", 
+                                           startOfDay as NSDate, 
+                                           mealNumber)
+        
+        if let existingLog = try? viewContext.fetch(fetchRequest).first {
+            return existingLog
+        }
+        
+        let newLog = MealLog(context: viewContext)
+        newLog.date = startOfDay
+        newLog.mealNumber = mealNumber
+        newLog.completed = false
+        newLog.optionSelected = 1
+        newLog.calories = 0
+        saveContext()
+        
+        return newLog
+    }
+    
+    // MARK: - Utility Functions
     func saveContext() {
-        if container.viewContext.hasChanges {
+        if viewContext.hasChanges {
             do {
-                try container.viewContext.save()
+                try viewContext.save()
             } catch {
-                print("Failed to save context: \(error)")
+                print("Error saving context: \(error)")
             }
         }
+    }
+    
+    func deleteAllData() {
+        let entities = container.managedObjectModel.entities
+        entities.forEach { entity in
+            guard let entityName = entity.name else { return }
+            let fetchRequest = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+            let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
+            try? container.persistentStoreCoordinator.execute(deleteRequest, with: viewContext)
+        }
+        saveContext()
     }
 }
 
@@ -117,4 +167,4 @@ extension Date {
         components.second = -1
         return Calendar.current.date(byAdding: components, to: startOfDay) ?? self
     }
-} 
+}

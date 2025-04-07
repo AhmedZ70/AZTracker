@@ -20,6 +20,11 @@ struct ContentView: View {
                     Label("Weekly", systemImage: "calendar")
                 }
             
+            WorkoutView()
+                .tabItem {
+                    Label("Workout", systemImage: "dumbbell.fill")
+                }
+            
             MealPlanView()
                 .tabItem {
                     Label("Meals", systemImage: "fork.knife")
@@ -37,4 +42,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environment(\.managedObjectContext, CoreDataManager.shared.container.viewContext)
 }
