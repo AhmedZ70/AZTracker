@@ -2,23 +2,24 @@ import Foundation
 import CoreData
 
 @objc(ProgressEntry)
-public class ProgressEntry: NSManagedObject, Identifiable {
+public class ProgressEntry: NSManagedObject {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<ProgressEntry> {
+        return NSFetchRequest<ProgressEntry>(entityName: "ProgressEntry")
+    }
+    
     @NSManaged public var entryDate: Date?
     @NSManaged public var weight: Double
     @NSManaged public var runTimeSeconds: Int32
     @NSManaged public var completionRate: Double
     @NSManaged public var notes: String?
-    @NSManaged public var photo: Data?
-    
-    // Add objectID as the id for Identifiable conformance
-    public var id: NSManagedObjectID {
-        return objectID
-    }
+    @NSManaged public var frontPhoto: Data?
+    @NSManaged public var backPhoto: Data?
+    @NSManaged public var sidePhoto: Data?
 }
 
-extension ProgressEntry {
-    static func fetchRequest() -> NSFetchRequest<ProgressEntry> {
-        return NSFetchRequest<ProgressEntry>(entityName: "ProgressEntry")
+extension ProgressEntry: Identifiable {
+    public var id: NSManagedObjectID {
+        return objectID
     }
     
     var formattedDate: String {
@@ -33,7 +34,7 @@ extension ProgressEntry {
     }
     
     var formattedWeight: String {
-        weight != 0 ? String(format: "%.1f lbs", weight * 2.20462) : "N/A"
+        weight != 0 ? String(format: "%.1f lbs", weight) : "N/A" // Weight is already in lbs
     }
     
     var formattedCompletionRate: String {

@@ -33,8 +33,8 @@ class CoreDataManager {
         
         let newRecord = DayRecord(context: viewContext)
         newRecord.date = startOfDay
-        newRecord.cardioCompleted = false
-        newRecord.workoutCompleted = false
+        newRecord.didRun = false
+        newRecord.didLift = false
         newRecord.mealsCompleted = false
         newRecord.supplementsCompleted = false
         saveContext()
@@ -43,20 +43,31 @@ class CoreDataManager {
     }
     
     // MARK: - Progress Entries
-    func createProgressEntry(date: Date, weight: Double? = nil, runTime: Int32? = nil, completion: Double? = nil, notes: String? = nil, photo: Data? = nil) -> ProgressEntry {
-        let entry = ProgressEntry(context: viewContext)
+    func createProgressEntry(
+        date: Date,
+        weight: Double? = nil,
+        runTime: Int32? = nil,
+        completion: Double? = nil,
+        notes: String? = nil,
+        frontPhoto: Data? = nil,
+        backPhoto: Data? = nil,
+        sidePhoto: Data? = nil
+    ) -> ProgressEntry {
+        let entry = NSEntityDescription.insertNewObject(forEntityName: "ProgressEntry", into: viewContext) as! ProgressEntry
         entry.entryDate = date
         entry.weight = weight ?? 0.0
         entry.runTimeSeconds = runTime ?? 0
         entry.completionRate = completion ?? 0.0
         entry.notes = notes
-        entry.photo = photo
+        entry.frontPhoto = frontPhoto
+        entry.backPhoto = backPhoto
+        entry.sidePhoto = sidePhoto
         saveContext()
         return entry
     }
     
     func getProgressEntries(startDate: Date? = nil, endDate: Date? = nil) -> [ProgressEntry] {
-        let request = ProgressEntry.fetchRequest()
+        let request = NSFetchRequest<ProgressEntry>(entityName: "ProgressEntry")
         
         if let start = startDate, let end = endDate {
             request.predicate = NSPredicate(format: "entryDate >= %@ AND entryDate <= %@", start as NSDate, end as NSDate)

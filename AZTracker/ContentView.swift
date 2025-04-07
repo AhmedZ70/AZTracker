@@ -35,8 +35,8 @@ struct ContentView: View {
                     Label("Progress", systemImage: "chart.line.uptrend.xyaxis")
                 }
         }
-        .accentColor(.red) // Durrah-inspired red accent color
-        .preferredColorScheme(.dark) // Default to dark mode
+        .accentColor(.red)
+        .preferredColorScheme(.dark)
     }
 }
 

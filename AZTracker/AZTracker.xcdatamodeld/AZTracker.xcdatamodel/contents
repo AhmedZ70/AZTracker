@@ -1,17 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22225" systemVersion="23B74" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithSwiftData="YES" userDefinedModelVersionIdentifier="">
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="22522" systemVersion="23C71" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithSwiftData="YES" userDefinedModelVersionIdentifier="">
     <entity name="DayRecord" representedClassName="DayRecord" syncable="YES" codeGenerationType="class">
-        <attribute name="cardioCompleted" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="didLift" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
-        <attribute name="didRun" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="didLift" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="didRun" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="mealsCompleted" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="note" optional="YES" attributeType="String"/>
-        <attribute name="shakeCompleted" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="shakeCompleted" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="supplementsCompleted" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
-        <attribute name="workoutCompleted" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <relationship name="mealLogs" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="MealLog" inverseName="dayRecord" inverseEntity="MealLog"/>
-        <relationship name="workoutLogs" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="WorkoutLog" inverseName="dayRecord" inverseEntity="WorkoutLog"/>
     </entity>
     <entity name="MealLog" representedClassName="MealLog" syncable="YES" codeGenerationType="class">
         <attribute name="calories" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
@@ -23,11 +20,13 @@
         <relationship name="dayRecord" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="DayRecord" inverseName="mealLogs" inverseEntity="DayRecord"/>
     </entity>
     <entity name="ProgressEntry" representedClassName="ProgressEntry" syncable="YES">
+        <attribute name="backPhoto" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <attribute name="completionRate" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
         <attribute name="entryDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="frontPhoto" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
-        <attribute name="photo" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <attribute name="runTimeSeconds" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="sidePhoto" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <attribute name="weight" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
     </entity>
     <entity name="WorkoutLog" representedClassName="WorkoutLog" syncable="YES" codeGenerationType="class">
@@ -35,6 +34,5 @@
         <attribute name="exerciseName" optional="YES" attributeType="String"/>
         <attribute name="notes" optional="YES" attributeType="String"/>
         <attribute name="setWeights" optional="YES" attributeType="Transformable" valueTransformerName="NSSecureUnarchiveFromData" customClassName="[Double]"/>
-        <relationship name="dayRecord" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="DayRecord" inverseName="workoutLogs" inverseEntity="WorkoutLog"/>
     </entity>
 </model> 
