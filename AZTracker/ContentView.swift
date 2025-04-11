@@ -3,6 +3,7 @@
 //  AZTracker
 //
 //  Created by Ahmed Zahran on 4/6/25.
+//  Copyright (c) 2023-2025 Ahmed Zahran - All Rights Reserved
 //
 
 import SwiftUI
