@@ -25,3 +25,4 @@ Any applications or projects built upon this codebase must prominently display t
 ## Contact
 
 For any inquiries, please contact Ahmed Zahran. 
+ahmedemzahran@gmail.com
